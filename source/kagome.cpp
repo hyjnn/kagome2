@@ -320,40 +320,18 @@ std::tuple<Polynomial::CoeffScalar, Polynomial::CoeffScalar> countKgNodeTypes(si
                             variantCounts.at(0).at(1) * variantCounts.at(0).at(2) + variantCounts.at(1).at(1) * variantCounts.at(1).at(2));
 }
 
-std::tuple<Polynomial::CoeffScalar, Polynomial::CoeffScalar> eigenGetRatios(const FloatMatrix& tMat, const FloatVector& eigenvector, unsigned dim) {
-    std::size_t i = (std::pow(2, dim) - binomialCoefficient(dim, dim / 2)) / 2, maxj = i, j;
-    State inState(dim), outState(dim);
-    std::tuple<Polynomial::CoeffScalar, Polynomial::CoeffScalar> temp;
-    Polynomial::CoeffScalar xCount = 0, yCount = 0;
-    Polynomial::CoeffScalar nodeCount = 0;
+std::tuple<Polynomial::CoeffScalar, Polynomial::CoeffScalar> eigenGetRatios(const Eigen::MatrixXPoly& tMat, const FloatVector& eigenvector, unsigned dim) {
+    std::size_t min = (std::pow(2, dim) - binomialCoefficient(dim, dim / 2)) / 2, max = (std::pow(2, dim) + binomialCoefficient(dim, dim / 2)) / 2;
 
-    inState.begin(dim / 2);
+    Polynomial sum(tMat(0, 0).degree());
 
-    while (true) {
-        j = maxj;
-        outState.begin(dim / 2);
-
-        do {
-            temp = countKgNodeTypes(i, j, inState, outState, tMat);
-            if (tMat(i, j) != 0) {
-                std::get<0>(temp) /= tMat(i, j) * 3;
-                std::get<1>(temp) /= tMat(i, j) * 3;
-            }
-            xCount += std::get<0>(temp) * eigenvector(i) * eigenvector(j);
-            yCount += std::get<1>(temp) * eigenvector(i) * eigenvector(j);
-                
-            j += 1;
-        } while (outState.next());
-
-        i += 1;
-        if (!inState.next()) {
-            maxj = j;
-            break;
+    for (size_t i = min; i < max; i++) {
+        for (size_t j = min; j < max; j++) {
+            sum += eigenvector(i) * tMat(i, j) * eigenvector(j);
         }
     }
-    nodeCount *= 3;
 
-    return std::make_tuple(xCount, yCount);
+    return countTypesKagome(sum);
 }
 
 std::tuple<Polynomial::CoeffScalar, Polynomial::CoeffScalar> transferGetRatios(const FloatMatrix& tMat, unsigned dim) {
@@ -688,7 +666,22 @@ void runCalcEigen(std::string type, unsigned nrows, unsigned powerIterCount = 10
     if (nrows < 7) std::cout << "Wektor wlasny:\n" << eigenvector << '\n';
 
     if (type == "kagomePoly") {
-        auto [xCount, yCount] = eigenGetRatios(tMat, eigenvector, nrows);
+        stopwatch.start();
+        Eigen::MatrixXPoly square = genTransfer(std::function(countSqPoly), nrows);
+        stopwatch.end();
+        std::cout << std::format("Square (Poly): czas liczenia: {} ms\n", stopwatch.read<Timer::ms>());
+
+        stopwatch.start();
+        Eigen::MatrixXPoly decoupled = genTransfer(std::function(countDcPoly), nrows);
+        stopwatch.end();
+        std::cout << std::format("Decoupled (Poly): czas liczenia: {} ms\n", stopwatch.read<Timer::ms>());
+
+        stopwatch.start();
+        Eigen::MatrixXPoly polyMat = square.lazyProduct(decoupled); //regular product doesn't work for big matrices
+        stopwatch.end();
+        std::cout << std::format("Czas liczenia macierzy transferu (Poly): {} ms\n", stopwatch.read<Timer::ms>());
+
+        auto [xCount, yCount] = eigenGetRatios(polyMat, eigenvector, nrows);
         std::cout << std::format("Ulamek wierzcholkow x: {}\nUlamek wierzcholkow y: {}\n", xCount, yCount);
     }
 }
