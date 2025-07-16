@@ -1,11 +1,12 @@
 #pragma once
 
 #include <iostream>
-#include <quadmath.h>
 
 #include <Eigen/Dense>
 
 #ifdef __GNUG__
+#include <quadmath.h>
+
 namespace Eigen {
     template<> struct NumTraits<__float128> : GenericNumTraits<__float128> {
         typedef __float128 Real;
