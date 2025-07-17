@@ -74,6 +74,9 @@ public:
 
 	inline size_t degree() const;
 
+    Polynomial derivative(unsigned) const;
+    CoeffScalar coeffSum() const;
+
     bool friend operator==(const Polynomial&, const Polynomial&);
 
 	Polynomial& operator+=(const Polynomial&);

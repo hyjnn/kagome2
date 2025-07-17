@@ -13,6 +13,7 @@
 #include <tuple>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include <Eigen/Dense>
 
@@ -39,7 +40,32 @@ unsigned long binomialCoefficient(unsigned n, unsigned k) {
     return binomialCoefficient(n - 1, k - 1) + binomialCoefficient(n - 1, k);
 }
 
-std::tuple<FloatType, FloatVector> maxEigen(FloatMatrix mat, unsigned n, FloatVector testVect = {}) {
+//helper function to use in power
+template<EigenScalar _Scalar, int _Rows, int _Cols>
+static Eigen::Matrix<_Scalar, _Rows, _Cols> specialMult(const Eigen::Matrix<_Scalar, _Rows, _Cols>& A, const Eigen::Matrix<_Scalar, _Rows, _Cols>& B) {
+    if constexpr (std::is_same<_Scalar, Polynomial>::value) {
+        return A.lazyProduct(B);
+    }
+    else {
+        return A * B;
+    }
+}
+
+template<EigenScalar _Scalar, int _Rows, int _Cols>
+Eigen::Matrix<_Scalar, _Rows, _Cols>& power(Eigen::Matrix<_Scalar, _Rows, _Cols>& mat, unsigned n) {
+    Eigen::Matrix<_Scalar, _Rows, _Cols> original = mat, temp;
+
+    for (unsigned i = static_cast<unsigned>(std::log2(n)); i > 0; i--) {
+        mat = specialMult(mat, mat);
+        if (n & (1 << i - 1)) {
+            mat = specialMult(mat, original);
+        }
+    }
+
+    return mat;
+}
+
+std::tuple<FloatType, FloatVector> maxEigen(const FloatMatrix& mat, unsigned n, FloatVector testVect = {}) {
     if (testVect.size() == 0) testVect = FloatVector::Random(mat.cols());
     testVect /= testVect.norm();
     FloatType eigenvalue = 0;
@@ -52,6 +78,53 @@ std::tuple<FloatType, FloatVector> maxEigen(FloatMatrix mat, unsigned n, FloatVe
     }
 
     return std::make_tuple(eigenvalue, testVect);
+}
+
+Eigen::MatrixXPoly derivate(const Eigen::MatrixXPoly& mat, unsigned var) {
+    Eigen::MatrixXPoly result(mat.cols(), mat.rows());
+
+    for (size_t i = 0; i < mat.cols(); i++) {
+        for (size_t j = 0; j < mat.rows(); j++) {
+            result(i, j) = mat(i, j).derivative(var);
+        }
+    }
+
+    return result;
+}
+
+FloatMatrix evaluate(const Eigen::MatrixXPoly& mat) {
+    FloatMatrix result(mat.cols(), mat.rows());
+
+    for (size_t i = 0; i < mat.cols(); i++) {
+        for (size_t j = 0; j < mat.rows(); j++) {
+            result(i, j) = mat(i, j).coeffSum();
+        }
+    }
+
+    return result;
+}
+
+FloatMatrix productRule(const FloatMatrix& A, FloatMatrix dA, unsigned n) {
+    if (n == 1) return dA;
+    if (n == 1) return FloatMatrix::Zero(A.cols(), A.rows());
+
+    std::vector<FloatMatrix> powers(n / 2);
+    FloatMatrix ASquared = A * A;
+    powers.at(0) = (n % 2 == 0 ? A : ASquared);
+    for (size_t i = 1; i < powers.size(); i++) {
+        powers.at(i) = powers.at(i - 1) * ASquared;
+    }
+
+    FloatMatrix result = dA * powers.at(powers.size() - 1) + powers.at(powers.size() - 1) * dA;
+
+    for (unsigned i = powers.size() - 1; i--;) {
+        dA = A * dA * A;
+        result += dA * powers.at(i) + powers.at(i) * dA;
+    }
+
+    if (n % 2) result += A * dA * A;
+
+    return result;
 }
 
 //Returns the amount of x and y type nodes respectively as fractions
@@ -489,31 +562,6 @@ Polynomial countDcPoly(const State& inState, const State& outState) {
     return result;
 }
 
-//helper function to use in power
-template<EigenScalar _Scalar, int _Rows, int _Cols>
-static Eigen::Matrix<_Scalar, _Rows, _Cols> specialMult(const Eigen::Matrix<_Scalar, _Rows, _Cols>& A, const Eigen::Matrix<_Scalar, _Rows, _Cols>& B) {
-    if constexpr (std::is_same<_Scalar, Polynomial>::value) {
-        return A.lazyProduct(B);
-    }
-    else {
-        return A * B;
-    }
-}
-
-template<EigenScalar _Scalar, int _Rows, int _Cols>
-Eigen::Matrix<_Scalar, _Rows, _Cols>& power(Eigen::Matrix<_Scalar, _Rows, _Cols>& mat, unsigned n) {
-    Eigen::Matrix<_Scalar, _Rows, _Cols> original = mat, temp;
-
-    for (unsigned i = static_cast<unsigned>(std::log2(n)); i > 0; i--) {
-        mat = specialMult(mat, mat);
-        if (n & (1 << i - 1)) {
-            mat = specialMult(mat, original);
-        }
-    }
-
-    return mat;
-}
-
 void runCalcTransfer(std::string type, unsigned nrows, unsigned ncols) {
     Timer stopwatch;
     unsigned nodeCount;
@@ -543,7 +591,7 @@ void runCalcTransfer(std::string type, unsigned nrows, unsigned ncols) {
             stopwatch.start();
             FloatMatrix decoupled = genTransfer(std::function(countDcStates), nrows);
             stopwatch.end();
-            std::cout << std::format("Decoupled: czas liczenia : {} ms\n", stopwatch.read<Timer::ms>());
+            std::cout << std::format("Decoupled: czas liczenia: {} ms\n", stopwatch.read<Timer::ms>());
 
             stopwatch.start();
             tMat = square * decoupled;
@@ -577,9 +625,10 @@ void runCalcTransfer(std::string type, unsigned nrows, unsigned ncols) {
         }
     }
     else {
-        Eigen::MatrixXPoly polyMat;
 
-        if (type == "kagomePoly") {
+        if (type == "kagomeOldPoly") {
+            Eigen::MatrixXPoly polyMat;
+
             stopwatch.start();
             Eigen::MatrixXPoly square = genTransfer(std::function(countSqPoly), nrows);
             stopwatch.end();
@@ -593,24 +642,86 @@ void runCalcTransfer(std::string type, unsigned nrows, unsigned ncols) {
             stopwatch.start();
             polyMat = square.lazyProduct(decoupled); //regular product doesn't work for big matrices
             stopwatch.end();
+
+            std::cout << std::format("Czas liczenia macierzy transferu: {} ms\n", stopwatch.read<Timer::ms>());
+
+            if (ncols > 1) {
+                stopwatch.start();
+                power(polyMat, ncols);
+                stopwatch.end();
+                std::cout << std::format("Czas potegowania: {} ms\n", stopwatch.read<Timer::ms>());
+            }
+
+            Polynomial trace = polyMat.trace();
+            if (ncols * nrows < 10 || ncols == 1) std::cout << "Wielomian: " << trace << '\n';
+            auto [xFraction, yFraction] = countTypesKagome(trace);
+
+            std::cout << std::format("Ulamek wierzcholkow typu x: {}\nUlamek wierzcholkow typu y : {}\n", xFraction, yFraction);
+        }
+        else if (type == "kagomePoly") {
+            stopwatch.start();
+            Eigen::MatrixXPoly squarePoly = genTransfer(std::function(countSqPoly), nrows);
+            FloatMatrix squareTypey = evaluate(derivate(squarePoly, 1));
+            FloatMatrix squareTypex = evaluate(derivate(squarePoly, 0));
+            stopwatch.end();
+            std::cout << std::format("SquareTypes: czas liczenia: {} ms\n", stopwatch.read<Timer::ms>());
+
+            stopwatch.start();
+            Eigen::MatrixXPoly decoupledPoly = genTransfer(std::function(countDcPoly), nrows);
+            FloatMatrix decoupledTypey = evaluate(derivate(decoupledPoly, 1));
+            FloatMatrix decoupledTypex = evaluate(derivate(decoupledPoly, 0));
+            stopwatch.end();
+            std::cout << std::format("DecoupledTypes: czas liczenia: {} ms\n", stopwatch.read<Timer::ms>());
+
+            stopwatch.start();
+            FloatMatrix square = genTransfer(std::function(countSqStates), nrows);
+            stopwatch.end();
+            std::cout << std::format("Square: czas liczenia: {} ms\n", stopwatch.read<Timer::ms>());
+
+            stopwatch.start();
+            FloatMatrix decoupled = genTransfer(std::function(countDcStates), nrows);
+            stopwatch.end();
+            std::cout << std::format("Decoupled: czas liczenia: {} ms\n", stopwatch.read<Timer::ms>());
+
+            stopwatch.start();
+            FloatMatrix kagome = square * decoupled;
+            stopwatch.end();
+            std::cout << std::format("Kagome: czas liczenia jednej kolumny: {} ms\n", stopwatch.read<Timer::ms>());
+            
+            stopwatch.start();
+            FloatMatrix kagomeTypex = square * decoupledTypex + squareTypex * decoupled;
+            FloatMatrix kagomeTypey = square * decoupledTypey + squareTypey * decoupled;
+            stopwatch.end();
+            std::cout << std::format("KagomeTypes: czas liczenia: {} ms\n", stopwatch.read<Timer::ms>());
+
+            stopwatch.start();
+            FloatMatrix tMatx = productRule(kagome, kagomeTypex, ncols);
+            FloatMatrix tMaty = productRule(kagome, kagomeTypey, ncols);
+            stopwatch.end();
+            std::cout << std::format("Czas obliczania macierzy rodzajow: {} ms\n", stopwatch.read<Timer::ms>());
+
+            FloatMatrix squareTypez = evaluate(derivate(squarePoly, 2));
+            FloatMatrix decoupledTypez = evaluate(derivate(decoupledPoly, 2));
+            FloatMatrix kagomeTypez = square * decoupledTypez + squareTypez * decoupled;
+            FloatMatrix tMatz = productRule(kagome, kagomeTypez, ncols);
+
+            if (ncols > 1) {
+                stopwatch.start();
+                power(kagome, ncols);
+                stopwatch.end();
+                std::cout << std::format("Czas potegowania kagome: {} ms\n", stopwatch.read<Timer::ms>());
+            }
+
+            FloatType configCount = kagome.trace();
+
+            FloatType xFraction = tMatx.trace() / configCount / (3 * ncols * nrows / 2);
+            FloatType yFraction = tMaty.trace() / configCount / (3 * ncols * nrows / 2);
+
+            std::cout << std::format("Stosunki wierzcholkow x i y: {} {}\n", xFraction, yFraction);
         }
         else {
             throw std::invalid_argument("Invalid grid type");
         }
-        std::cout << std::format("Czas liczenia macierzy transferu: {} ms\n", stopwatch.read<Timer::ms>());
-
-        if (ncols > 1) {
-            stopwatch.start();
-            power(polyMat, ncols);
-            stopwatch.end();
-            std::cout << std::format("Czas potegowania: {} ms\n", stopwatch.read<Timer::ms>());
-        }
-
-        Polynomial trace = polyMat.trace();
-        if (ncols * nrows < 10 || ncols == 1) std::cout << "Wielomian: " << trace << '\n';
-        auto [xFraction, yFraction] = countTypesKagome(trace);
-
-        std::cout << std::format("Ulamek wierzcholkow typu x: {}\nUlamek wierzcholkow typu y : {}", xFraction, yFraction);
     }
 
     std::cout << '\n';
@@ -782,7 +893,7 @@ bool isUnsigned(std::string text) {
 * 1st bit - true if syntax was correct
 * 2nd bit - true if program is to be exited
 */
-void execute(std::vector<std::string> command, std::bitset<2>& flags) {
+void parseCommand(std::vector<std::string> command, std::bitset<2>& flags) {
     if (command.size() == 0) {
         flags = 0b0;
         return;
@@ -792,7 +903,7 @@ void execute(std::vector<std::string> command, std::bitset<2>& flags) {
         const std::unordered_set<std::string_view> availableTypes = {
                 "square",
                 "decoupled",
-                "kagome", "kagomePoly", "kagomeAlt"
+                "kagome", "kagomePoly", "kagomeAlt", "kagomeOldPoly"
         };
 
         if (command.size() < 4 || availableTypes.find(command.at(1)) == availableTypes.end()) {
@@ -858,7 +969,7 @@ int main() {
         std::getline(std::cin, commandRaw);
         command = split(commandRaw);
 
-        execute(command, executeFlags);
+        parseCommand(command, executeFlags);
 
         if (!executeFlags.test(0)) {
             std::cout << "Niepoprawna komenda\n";

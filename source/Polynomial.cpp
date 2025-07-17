@@ -10,6 +10,76 @@
 
 #include "Polynomial.h"
 
+namespace {
+	std::string monomial(size_t i, size_t j, size_t k) {
+		std::string result = "";
+
+		if (i > 1) {
+			result += "x^" + std::to_string(i);
+		}
+		else if (i == 1) result += "x";
+
+		if (j > 1) {
+			result += "y^" + std::to_string(j);
+		}
+		else if (j == 1) result += "y";
+
+		if (k > 1) {
+			result += "z^" + std::to_string(k);
+		}
+		else if (k == 1) result += "z";
+
+		return result;
+	}
+}
+
+Polynomial Polynomial::derivative(unsigned var) const {
+	if (var > 2) throw std::invalid_argument("Derivative with respect to invalid variable");
+
+	if (*this == Polynomial(0)) return Polynomial(0);
+
+	Polynomial result(this->degree() - 1);
+
+	switch (var) {
+	case 0:
+		for (size_t i = 0; i <= result.degree(); i++) {
+			for (size_t j = 0; j <= result.degree() - i; j++) {
+				result.coefficients(i, j) = this->coefficients(i + 1, j) * (i + 1);
+			}
+		}
+		break;
+
+	case 1:
+		for (size_t i = 0; i <= result.degree(); i++) {
+			for (size_t j = 0; j <= result.degree() - i; j++) {
+				result.coefficients(i, j) = this->coefficients(i, j + 1) * (j + 1);
+			}
+		}
+		break;
+
+	case 2:
+		for (size_t i = 0; i <= result.degree(); i++) {
+			for (size_t j = 0; j <= result.degree() - i; j++) {
+				result.coefficients(i, j) = this->coefficients(i, j) * (this->degree() - i - j);
+			}
+		}
+		break;
+	}
+	
+	return result;
+}
+
+Polynomial::CoeffScalar Polynomial::coeffSum() const {
+	CoeffScalar result = 0;
+
+	for (size_t i = 0; i <= degree(); i++) {
+		for (size_t j = 0; j <= degree() - i; j++) {
+			result += coefficients(i, j);
+		}
+	}
+	return result;
+}
+
 bool operator==(const Polynomial& p, const Polynomial& q) {
 	if (p.degree() != q.degree()) {
 		return p.coefficients.isZero() && q.coefficients.isZero();
@@ -83,27 +153,6 @@ Polynomial& Polynomial::operator*=(const Polynomial &p) {
 Polynomial& Polynomial::operator*=(double x) {
 	this->coefficients *= x;
 	return *this;
-}
-
-static std::string monomial(size_t i, size_t j, size_t k) {
-	std::string result = "";
-
-	if (i > 1) {
-		result += "x^" + std::to_string(i);
-	}
-	else if (i == 1) result += "x";
-
-	if (j > 1) {
-		result += "y^" + std::to_string(j);
-	}
-	else if (j == 1) result += "y";
-
-	if (k > 1) {
-		result += "z^" + std::to_string(k);
-	}
-	else if (k == 1) result += "z";
-
-	return result;
 }
 
 //Polynomial form printing
