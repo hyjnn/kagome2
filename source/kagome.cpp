@@ -15,54 +15,70 @@
 #include <utility>
 #include <vector>
 
-#include <Eigen/Dense>
-
 #include "Polynomial.h"
 #include "State.h"
 #include "Timer.h"
 
+#include <Eigen/Dense>
+
+#if defined(__GNUG__) && defined(USE_FLOAT128_ALL)
+using FloatType = __float128;
+#else
 using FloatType = double;
+#endif
 using FloatVector = Eigen::Matrix<FloatType, Eigen::Dynamic, 1>;
 using FloatMatrix = Eigen::Matrix<FloatType, Eigen::Dynamic, Eigen::Dynamic>;
 
-template<typename _Scalar>
-concept EigenScalar = requires (Eigen::Matrix<_Scalar, -1, -1> testMat1, Eigen::Matrix<_Scalar, -1, -1> testMat2) {
-    testMat1 * testMat2;
-};
+namespace {
+    template<typename _Scalar>
+    concept EigenScalar = requires (Eigen::Matrix<_Scalar, -1, -1> testMat1, Eigen::Matrix<_Scalar, -1, -1> testMat2) {
+        testMat1 * testMat2;
+    };
 
-unsigned long binomialCoefficient(unsigned n, unsigned k) {
-    if (k == 0 || k == n) {
-        return 1;
+    unsigned long binomialCoefficient(unsigned n, unsigned k) {
+        if (k == 0 || k == n) {
+            return 1;
+        }
+        if (k > n) {
+            return 0;
+        }
+        return binomialCoefficient(n - 1, k - 1) + binomialCoefficient(n - 1, k);
     }
-    if (k > n) {
-        return 0;
-    }
-    return binomialCoefficient(n - 1, k - 1) + binomialCoefficient(n - 1, k);
-}
 
-//helper function to use in power
-template<EigenScalar _Scalar, int _Rows, int _Cols>
-static Eigen::Matrix<_Scalar, _Rows, _Cols> specialMult(const Eigen::Matrix<_Scalar, _Rows, _Cols>& A, const Eigen::Matrix<_Scalar, _Rows, _Cols>& B) {
-    if constexpr (std::is_same<_Scalar, Polynomial>::value) {
-        return A.lazyProduct(B);
-    }
-    else {
-        return A * B;
-    }
-}
-
-template<EigenScalar _Scalar, int _Rows, int _Cols>
-Eigen::Matrix<_Scalar, _Rows, _Cols>& power(Eigen::Matrix<_Scalar, _Rows, _Cols>& mat, unsigned n) {
-    Eigen::Matrix<_Scalar, _Rows, _Cols> original = mat, temp;
-
-    for (unsigned i = static_cast<unsigned>(std::log2(n)); i > 0; i--) {
-        mat = specialMult(mat, mat);
-        if (n & (1 << i - 1)) {
-            mat = specialMult(mat, original);
+    template<typename _Scalar>
+    _Scalar logarithm(_Scalar x) {
+        if constexpr (std::is_same<_Scalar, __float128>::value) {
+            return logq(x);
+        }
+        else {
+            return std::log(x);
         }
     }
 
-    return mat;
+    //helper function to use in power
+    template<EigenScalar _Scalar, int _Rows, int _Cols>
+    Eigen::Matrix<_Scalar, _Rows, _Cols> specialMult(const Eigen::Matrix<_Scalar, _Rows, _Cols>& A, const Eigen::Matrix<_Scalar, _Rows, _Cols>& B) {
+        if constexpr (std::is_same<_Scalar, Polynomial>::value) {
+            return A.lazyProduct(B);
+        }
+        else {
+            return A * B;
+        }
+    }
+
+    template<EigenScalar _Scalar, int _Rows, int _Cols>
+    Eigen::Matrix<_Scalar, _Rows, _Cols>& power(Eigen::Matrix<_Scalar, _Rows, _Cols>& mat, unsigned n) {
+        Eigen::Matrix<_Scalar, _Rows, _Cols> original = mat, temp;
+
+        for (unsigned i = static_cast<unsigned>(std::log2(n)); i > 0; i--) {
+            mat = specialMult(mat, mat);
+            if (n & (1 << i - 1)) {
+                mat = specialMult(mat, original);
+            }
+        }
+
+        return mat;
+    }
 }
 
 std::tuple<FloatType, FloatVector> maxEigen(const FloatMatrix& mat, unsigned n, FloatVector testVect = {}) {
@@ -618,7 +634,7 @@ void runCalcTransfer(std::string type, unsigned nrows, unsigned ncols) {
 
         stateCount = tMat.trace();
         std::cout << "Liczba stanow: " << stateCount << '\n';
-        std::cout << std::format("Entropia resztkowa na czasteczke: {} k_B\n", std::log(stateCount) / nodeCount);
+        std::cout << std::format("Entropia resztkowa na czasteczke: {} k_B\n", logarithm(stateCount) / nodeCount);
         
         if (nrows < 7 && ncols < 7) {
             std::cout << tMat;
@@ -772,7 +788,7 @@ void runCalcEigen(std::string type, unsigned nrows, unsigned powerIterCount = 10
     eigenvector /= eigenvector.sum();
 
     std::cout << "Maksymalna wartosc wlasna: " << eigenvalue << '\n';
-    std::cout << std::format("Graniczna entropia resztkowa na czasteczke: {} k_B\n", std::log(eigenvalue) / nodeFactor);
+    std::cout << std::format("Graniczna entropia resztkowa na czasteczke: {} k_B\n", logarithm(eigenvalue) / nodeFactor);
 
     if (nrows < 7) std::cout << "Wektor wlasny:\n" << eigenvector << '\n';
 

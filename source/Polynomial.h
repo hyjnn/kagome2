@@ -39,6 +39,15 @@ namespace Eigen::numext {
     }
 }
 
+namespace Eigen::internal {
+    template<>
+    struct sqrt_impl<__float128> {
+        static inline __float128 run(const __float128& x) {
+            return sqrtq(x);
+        }
+    };
+}
+
 namespace std {
     template <>
     struct formatter<__float128> : formatter<string> {
@@ -48,7 +57,16 @@ namespace std {
             return formatter<string>::format(std::format("{}", buffer), ctx);
         }
     };
+
+    //THIS IS UB!!!! THIS IS A HACK!!!! THIS SHOULD BE DONE PROPERLY WITH A CUSTOM TYPE INSTEAD!!!!
+    inline std::ostream& operator<<(std::ostream& out, const __float128 x) {
+        char buffer[64];
+        quadmath_snprintf(buffer, sizeof buffer, "%-40.34Qe", x);
+        return out << buffer;
+    }
 }
+
+
 #endif
 
 //going clockwise, starting in the upper left arrow with (kagome) node positioned horizontally:
@@ -60,8 +78,7 @@ class Polynomial {
 public:
 #ifdef __GNUG__
     using CoeffScalar = __float128;
-#endif
-#ifdef _MSC_VER
+#else
     using CoeffScalar = double;
 #endif
     using CoeffMatrix = Eigen::Matrix<CoeffScalar, Eigen::Dynamic, Eigen::Dynamic>;

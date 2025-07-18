@@ -6,9 +6,9 @@
 #include <string>
 #include <sstream>
 
-#include <Eigen/Dense>
-
 #include "Polynomial.h"
+
+#include <Eigen/Dense>
 
 namespace {
 	std::string monomial(size_t i, size_t j, size_t k) {
