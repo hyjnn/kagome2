@@ -47,12 +47,16 @@ namespace {
 
     template<typename _Scalar>
     _Scalar logarithm(_Scalar x) {
+#if defined(__GNUG__) && defined(USE_FLOAT128_ALL)
         if constexpr (std::is_same<_Scalar, __float128>::value) {
             return logq(x);
         }
         else {
             return std::log(x);
         }
+#else
+        return std::log(x);
+#endif
     }
 
     //helper function to use in power
