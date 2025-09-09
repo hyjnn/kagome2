@@ -27,6 +27,7 @@ using FloatType = __float128;
 using FloatType = double;
 #endif
 using FloatVector = Eigen::Matrix<FloatType, Eigen::Dynamic, 1>;
+using FloatCovector = Eigen::Matrix<FloatType, 1, Eigen::Dynamic>;
 using FloatMatrix = Eigen::Matrix<FloatType, Eigen::Dynamic, Eigen::Dynamic>;
 
 namespace {
@@ -83,6 +84,21 @@ namespace {
 
         return mat;
     }
+}
+
+std::tuple<FloatType, FloatCovector> maxLeftEigen(const FloatMatrix& mat, unsigned n, FloatCovector testVect = {}) {
+    if (testVect.size() == 0) testVect = FloatCovector::Random(mat.cols());
+    testVect /= testVect.norm();
+    FloatType eigenvalue = 0;
+
+    for (unsigned i = 0; i < n; i++) {
+        testVect = testVect * mat;
+        eigenvalue = testVect.norm();
+
+        testVect /= eigenvalue;
+    }
+
+    return std::make_tuple(eigenvalue, testVect);
 }
 
 std::tuple<FloatType, FloatVector> maxEigen(const FloatMatrix& mat, unsigned n, FloatVector testVect = {}) {
@@ -413,14 +429,14 @@ std::tuple<Polynomial::CoeffScalar, Polynomial::CoeffScalar> countKgNodeTypes(si
                             variantCounts.at(0).at(1) * variantCounts.at(0).at(2) + variantCounts.at(1).at(1) * variantCounts.at(1).at(2));
 }
 
-std::tuple<Polynomial::CoeffScalar, Polynomial::CoeffScalar> eigenGetRatios(const Eigen::MatrixXPoly& tMat, const FloatVector& eigenvector, unsigned dim) {
+std::tuple<Polynomial::CoeffScalar, Polynomial::CoeffScalar> eigenGetRatios(const Eigen::MatrixXPoly& tMat, const FloatVector& eigenvector, const FloatCovector& eigencovector, unsigned dim) {
     std::size_t min = (std::pow(2, dim) - binomialCoefficient(dim, dim / 2)) / 2, max = (std::pow(2, dim) + binomialCoefficient(dim, dim / 2)) / 2;
 
     Polynomial sum(tMat(0, 0).degree());
 
     for (size_t i = min; i < max; i++) {
         for (size_t j = min; j < max; j++) {
-            sum += eigenvector(i) * tMat(i, j) * eigenvector(j);
+            sum += eigencovector(i) * tMat(i, j) * eigenvector(j);
         }
     }
 
@@ -752,6 +768,7 @@ void runCalcEigen(std::string type, unsigned nrows, unsigned powerIterCount = 10
     FloatType eigenvalue;
     unsigned nodeFactor = nrows;
     FloatVector eigenvector;
+    FloatCovector eigencovector;
     FloatMatrix tMat;
 
     if (type == "square") {
@@ -812,7 +829,8 @@ void runCalcEigen(std::string type, unsigned nrows, unsigned powerIterCount = 10
         stopwatch.end();
         std::cout << std::format("Czas liczenia macierzy transferu (Poly): {} ms\n", stopwatch.read<Timer::ms>());
 
-        auto [xCount, yCount] = eigenGetRatios(polyMat, eigenvector, nrows);
+        std::tie(eigenvalue, eigencovector) = maxLeftEigen(tMat, powerIterCount);
+        auto [xCount, yCount] = eigenGetRatios(polyMat, eigenvector, eigencovector, nrows);
         std::cout << std::format("Ulamek wierzcholkow x: {}\nUlamek wierzcholkow y: {}\n", xCount, yCount);
     }
 }
